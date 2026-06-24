@@ -1,0 +1,3 @@
+Place a placeholder food image here (placeholder-food.jpg).
+Used when a menu item has no image URL.
+Recommended: 600x600px, JPEG, < 100KB.

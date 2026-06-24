@@ -1,0 +1,75 @@
+# Supabase project configuration.
+# `project_id` must match the "Reference ID" of the linked project,
+# or simply act as a local identifier. For the GitHub integration and
+# `supabase db push`, this file's presence marks the repo root for the CLI.
+# Docs: https://supabase.com/docs/guides/cli/config
+
+project_id = "orderza"
+
+[api]
+enabled = true
+# Port to use for the API URL when running locally (`supabase start`).
+port = 54321
+# Schemas to expose in the API. `public` and `graphql_public` are exposed by default.
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+# Max rows returned from a view, table, or stored procedure. Limits payload size.
+max_rows = 1000
+
+[db]
+# Port to use for the local database URL.
+port = 54322
+# Port used by `db diff` to initialize the shadow database.
+shadow_port = 54320
+# The database major version to use. This has to be the same as your remote
+# database's. Run `SHOW server_version;` on the remote to check.
+major_version = 15
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+# Email testing server. Captures emails sent locally; not for production.
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+# NOTE: Orderza uses 36blocks for auth (dummy mode in the prototype), not
+# Supabase Auth. The block below only affects local `supabase start`.
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[analytics]
+enabled = false
+
+[edge_runtime]
+enabled = true
+# Use `oneshot` for hot reload during local dev, `per_worker` for load testing.
+policy = "oneshot"
+inspector_port = 8083
