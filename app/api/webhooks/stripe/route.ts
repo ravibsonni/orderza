@@ -4,7 +4,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
 import type Stripe from "stripe";
 
-export const config = { api: { bodyParser: false } };
+// App Router route handlers do not buffer/parse the request body, so the old
+// Pages-style `export const config = { api: { bodyParser: false } }` is not
+// needed (and is unsupported). `req.text()` below returns the raw body, which
+// is required for Stripe webhook signature verification.
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
