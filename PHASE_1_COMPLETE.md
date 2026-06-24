@@ -13,7 +13,7 @@
 | `package.json` | All dependencies |
 | `tsconfig.json` | TypeScript config |
 | `tailwind.config.ts` | Design tokens, custom animations |
-| `next.config.ts` | Next.js config |
+| `next.config.mjs` | Next.js config |
 | `postcss.config.js` | Tailwind PostCSS |
 | `.env.example` | All env vars with descriptions |
 | `.gitignore` | Standard Next.js gitignore |
