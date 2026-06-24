@@ -48,7 +48,24 @@ export async function POST(req: NextRequest) {
       `id, name, description, image_url, is_available,
        menu_item_prices(id, label, delivery_price, base_price, is_active, meta_variant_id)`
     )
-    .eq("restaurant_id", session.restaurantId);
+    .eq("restaurant_id", session.restaurantId)
+    .returns<
+      {
+        id: string;
+        name: string;
+        description: string | null;
+        image_url: string | null;
+        is_available: boolean;
+        menu_item_prices: {
+          id: string;
+          label: string;
+          delivery_price: number | null;
+          base_price: number;
+          is_active: boolean;
+          meta_variant_id: string | null;
+        }[];
+      }[]
+    >();
 
   // Fetch Meta catalogue state
   const metaProducts = await metaClient.listProducts();

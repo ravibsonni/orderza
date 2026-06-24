@@ -22,7 +22,22 @@ export async function GET(req: NextRequest) {
   else if (filter === "completed") query = query.eq("status", "delivered");
   else if (filter === "cancelled") query = query.eq("status", "cancelled");
 
-  const { data: orders } = await query;
+  // Embedded `order_items` join typed explicitly (Database types declare no
+  // relationships; regenerate with `supabase gen types` to drop this override).
+  const { data: orders } = await query.returns<
+    {
+      id: string;
+      order_number: string;
+      customer_name: string | null;
+      order_type: string;
+      status: string;
+      total: number | null;
+      created_at: string;
+      delivery_address: string | null;
+      notes: string | null;
+      order_items: { item_name: string; quantity: number; unit_price: number }[];
+    }[]
+  >();
 
   const formatted = (orders ?? []).map((o) => ({
     ...o,

@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const [{ data: orders }, { data: allOrders }] = await Promise.all([
     admin.from("orders").select("id, total, order_type, status, customer_phone_hash, created_at").eq("restaurant_id", restaurantId).gte("created_at", since),
-    admin.from("orders").select("id, total, customer_phone_hash").eq("restaurant_id", restaurantId),
+    admin.from("orders").select("id, total, customer_phone_hash, created_at").eq("restaurant_id", restaurantId),
   ]);
 
   const totalOrders = allOrders?.length ?? 0;

@@ -43,6 +43,14 @@ export default async function TrackingPage({ params }: Props) {
       order_items(item_name, price_label, quantity, unit_price)
     `)
     .eq("id", payload.orderId)
+    .returns<
+      {
+        id: string;
+        order_number: string;
+        status: string;
+        order_items: { item_name: string; price_label: string; quantity: number; unit_price: number }[];
+      }[]
+    >()
     .single();
 
   if (!order) notFound();

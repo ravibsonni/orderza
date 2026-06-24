@@ -68,7 +68,9 @@ export async function GET(req: NextRequest) {
 
   await createSession({
     restaurantId: restaurant.id,
-    authUserId: restaurant.auth_user_id,
+    // auth_user_id is nullable in the schema, but we just upserted it with the
+    // local `authUserId`, so fall back to that to keep the type non-null.
+    authUserId: restaurant.auth_user_id ?? authUserId,
     email: restaurant.email ?? email,
     onboardingStep: restaurant.onboarding_step,
     isActive: restaurant.is_active,
@@ -77,7 +79,7 @@ export async function GET(req: NextRequest) {
   await writeAuditLog({
     restaurantId: restaurant.id,
     actorType: "restaurant",
-    actorId: restaurant.auth_user_id,
+    actorId: restaurant.auth_user_id ?? authUserId,
     action: "auth.login",
     ...requestMeta(req),
   });

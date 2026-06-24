@@ -77,6 +77,10 @@ export async function extractMenuFromFile(
       {
         role: "user",
         content: [
+          // @anthropic-ai/sdk@0.27.x predates document/PDF support, so it has no
+          // DocumentBlockParam type. Cast through `unknown` to a real content-block
+          // type so this compiles; the runtime payload is unchanged. TODO: upgrade
+          // the SDK for first-class PDF support (and send images as `type: "image"`).
           {
             type: "document" as const,
             source: {
@@ -84,7 +88,7 @@ export async function extractMenuFromFile(
               media_type: mediaType,
               data: fileBase64,
             },
-          } as Anthropic.DocumentBlockParam,
+          } as unknown as Anthropic.ImageBlockParam,
           {
             type: "text",
             text: EXTRACTION_PROMPT + contextNote,

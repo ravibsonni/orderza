@@ -5,10 +5,23 @@
 
 import Stripe from "stripe";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-09-30.acacia",
-  typescript: true,
-});
+let _stripe: Stripe | null = null;
+
+/**
+ * Lazily instantiate the Stripe client. Creating it at module scope would
+ * require STRIPE_SECRET_KEY during `next build` (page-data collection imports
+ * these route modules), so creation is deferred until the first request.
+ */
+function getStripe(): Stripe {
+  if (!_stripe) {
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+      // Must match the API version the installed stripe SDK (17.x) is pinned to.
+      apiVersion: "2025-02-24.acacia",
+      typescript: true,
+    });
+  }
+  return _stripe;
+}
 
 export const PLANS = {
   monthly: {
@@ -42,7 +55,7 @@ export async function getOrCreateStripeCustomer(
     return existingCustomerId;
   }
 
-  const customer = await stripe.customers.create({
+  const customer = await getStripe().customers.create({
     email,
     name,
     metadata: { restaurantId },
@@ -61,7 +74,7 @@ export async function createCheckoutSession(params: {
   successUrl: string;
   cancelUrl: string;
 }): Promise<Stripe.Checkout.Session> {
-  return stripe.checkout.sessions.create({
+  return getStripe().checkout.sessions.create({
     customer: params.customerId,
     payment_method_types: ["card"],
     mode: "subscription",
@@ -83,7 +96,7 @@ export function constructWebhookEvent(
   payload: string | Buffer,
   signature: string
 ): Stripe.Event {
-  return stripe.webhooks.constructEvent(
+  return getStripe().webhooks.constructEvent(
     payload,
     signature,
     process.env.STRIPE_WEBHOOK_SECRET!
@@ -97,7 +110,7 @@ export async function createPortalSession(
   customerId: string,
   returnUrl: string
 ): Promise<string> {
-  const session = await stripe.billingPortal.sessions.create({
+  const session = await getStripe().billingPortal.sessions.create({
     customer: customerId,
     return_url: returnUrl,
   });

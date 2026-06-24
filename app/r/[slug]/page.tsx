@@ -32,7 +32,21 @@ export default async function RestaurantLandingPage({ params }: Props) {
     .select(`id, name, menu_items(id, name, description, image_url, is_available, menu_item_prices(label, base_price, is_default, is_active))`)
     .eq("restaurant_id", restaurant.id)
     .eq("is_active", true)
-    .order("display_order");
+    .order("display_order")
+    .returns<
+      {
+        id: string;
+        name: string;
+        menu_items: {
+          id: string;
+          name: string;
+          description: string | null;
+          image_url: string | null;
+          is_available: boolean;
+          menu_item_prices: { label: string; base_price: number; is_default: boolean; is_active: boolean }[];
+        }[];
+      }[]
+    >();
 
   const phone = restaurant.whatsapp_number?.replace(/\D/g, "") ?? "";
   const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(`Hi! I'd like to order from ${restaurant.name}`)}`;
