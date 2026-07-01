@@ -13,12 +13,20 @@
 
 "use client";
 import { useState } from "react";
+import Script from "next/script";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+
+declare global {
+  interface Window {
+    configuration?: unknown;
+    initVerification?: (config: unknown) => void;
+  }
+}
 
 export default function LoginPage() {
   const { toast } = useToast();
@@ -27,6 +35,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const isDummy = process.env.NEXT_PUBLIC_DUMMY_AUTH_ENABLED === "true";
+  // 36Blocks / MSG91 proxy-auth widget reference id (public — safe in client).
+  const referenceId =
+    process.env.NEXT_PUBLIC_36BLOCKS_APP_ID || "117230c17829386726a457c304f7d8";
 
   const handleDummyLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,10 +104,25 @@ export default function LoginPage() {
               </Button>
             </form>
           ) : (
-            /* ── Real 36blocks embed goes here ── */
-            <div className="text-center py-8">
-              <p className="text-muted-foreground text-sm">36blocks authentication loading…</p>
-              <div id="blocks36-login-widget" className="mt-4" />
+            /* ── 36blocks / MSG91 proxy-auth widget ──
+               On success MSG91 redirects the browser to the redirect URL
+               configured in the 36blocks panel (/authenticate), which decrypts
+               the payload and starts the session. */
+            <div className="py-4">
+              <div id={referenceId} className="min-h-[120px]" />
+              <Script id="blocks36-config" strategy="afterInteractive">
+                {`window.configuration = {
+                    referenceId: ${JSON.stringify(referenceId)},
+                    type: 'authorization',
+                    success: function (data) { console.log('36blocks success', data); },
+                    failure: function (error) { console.log('36blocks failure', error); },
+                  };`}
+              </Script>
+              <Script
+                src="https://proxy.msg91.com/assets/proxy-auth/proxy-auth.js"
+                strategy="afterInteractive"
+                onLoad={() => window.initVerification?.(window.configuration)}
+              />
             </div>
           )}
         </div>
