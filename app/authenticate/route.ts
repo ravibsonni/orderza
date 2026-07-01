@@ -13,18 +13,24 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { establishSessionAndRedirect } from "@/lib/auth/blocks-session";
-import { decryptBlocksPayload, blocksPayloadToIdentity } from "@/lib/auth/blocks-crypto";
+import {
+  decryptBlocksPayload,
+  blocksPayloadToIdentity,
+  type BlocksPayload,
+} from "@/lib/auth/blocks-crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Param/field names MSG91 might use to carry the ciphertext.
 const CIPHER_KEYS = [
+  "message",
   "token",
   "authToken",
   "accessToken",
   "access-token",
   "access_token",
+  "jwt",
   "data",
   "response",
   "payload",
@@ -58,6 +64,8 @@ async function extractCipher(req: NextRequest): Promise<string | null> {
           const v = body[k];
           if (typeof v === "string" && v) return v;
         }
+        // Defensive: the body may already be the decrypted { user, company }.
+        if ("user" in body) return JSON.stringify(body);
       }
       return null;
     }
@@ -89,7 +97,17 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   }
 
   const secret = process.env.BLOCKS_AUTH_SECRET || "secret";
-  const payload = decryptBlocksPayload(cipher, secret);
+
+  // Defensive: accept an already-decrypted plaintext JSON payload, otherwise
+  // decrypt. 36Blocks sends it encrypted, so decryption is the normal path.
+  let payload: BlocksPayload | null = null;
+  try {
+    const maybe = JSON.parse(cipher) as BlocksPayload;
+    if (maybe && typeof maybe === "object" && maybe.user) payload = maybe;
+  } catch {
+    /* not plaintext JSON — decrypt below */
+  }
+  if (!payload) payload = decryptBlocksPayload(cipher, secret);
   if (!payload) {
     // Log enough to finalize the exact scheme from the MSG91 side without
     // leaking a full secret. The cipher itself is not a long-lived secret.

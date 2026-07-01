@@ -25,7 +25,7 @@ export interface SessionPayload {
   isActive: boolean;
 }
 
-const COOKIE_NAME = "mc_session";
+export const SESSION_COOKIE_NAME = "mc_session";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 function getSecret(): Uint8Array {
@@ -36,27 +36,42 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function createSession(payload: SessionPayload): Promise<void> {
-  const token = await new SignJWT({ ...payload })
+/** Sign a session JWT (30 day expiry). */
+export async function signSessionToken(payload: SessionPayload): Promise<string> {
+  return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
     .sign(getSecret());
+}
 
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, token, {
+/** Cookie attributes for the session cookie. */
+export function sessionCookieOptions() {
+  return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     maxAge: COOKIE_MAX_AGE,
     path: "/",
-  });
+  };
+}
+
+/**
+ * Set the session cookie via next/headers. Works for handlers that return a
+ * JSON response; for handlers that return a custom NextResponse (e.g. a
+ * redirect), set the cookie on that response instead — see
+ * lib/auth/blocks-session.ts.
+ */
+export async function createSession(payload: SessionPayload): Promise<void> {
+  const token = await signSessionToken(payload);
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, token, sessionCookieOptions());
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
   try {
     const cookieStore = await cookies();
-    const token = cookieStore.get(COOKIE_NAME)?.value;
+    const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     if (!token) return null;
 
     const { payload } = await jwtVerify(token, getSecret());
@@ -76,7 +91,7 @@ export async function updateSession(
 
 export async function destroySession(): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.delete(COOKIE_NAME);
+  cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
 export async function requireSession(): Promise<SessionPayload> {

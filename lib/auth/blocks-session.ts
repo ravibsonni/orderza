@@ -10,7 +10,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
-import { createSession } from "@/lib/auth/session";
+import {
+  signSessionToken,
+  sessionCookieOptions,
+  SESSION_COOKIE_NAME,
+} from "@/lib/auth/session";
 import { writeAuditLog, requestMeta } from "@/lib/audit";
 
 export interface Identity {
@@ -81,7 +85,7 @@ export async function establishSessionAndRedirect(
     restaurant = created;
   }
 
-  await createSession({
+  const token = await signSessionToken({
     restaurantId: restaurant.id,
     authUserId: restaurant.auth_user_id ?? id.authUserId,
     email: restaurant.email ?? id.email,
@@ -98,6 +102,10 @@ export async function establishSessionAndRedirect(
   });
 
   const dest = restaurant.onboarding_step >= 8 ? "/dashboard" : "/onboarding";
-  // 303 so a POST callback lands on the destination as a GET.
-  return NextResponse.redirect(new URL(dest, req.url), { status: 303 });
+  // 303 so a POST callback lands on the destination as a GET. Set the session
+  // cookie directly on the redirect response — cookies set via next/headers do
+  // not reliably attach to a returned NextResponse.
+  const res = NextResponse.redirect(new URL(dest, req.url), { status: 303 });
+  res.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+  return res;
 }
