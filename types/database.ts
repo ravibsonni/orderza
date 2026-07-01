@@ -49,6 +49,7 @@ export interface Database {
           plan: string | null;
           plan_status: string | null;
           auth_user_id: string | null;
+          blocks_company_id: string | null;
           onboarding_step: number;
           onboarding_xp: number;
           is_active: boolean;

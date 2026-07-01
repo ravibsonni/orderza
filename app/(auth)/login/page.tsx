@@ -5,8 +5,9 @@
  * When 36blocks is live:
  *   1. Set DUMMY_AUTH_ENABLED=false in .env
  *   2. Add the 36blocks JS embed script to app/layout.tsx (see comment there)
- *   3. Replace the form below with window.blocks36.login() call
- *   4. 36blocks will redirect to /api/auth/callback?token=<jwt>
+ *   3. Replace the form below with the 36blocks login trigger
+ *   4. After login, 36blocks redirects to /api/auth/callback with a JSON
+ *      { user, company } payload (see the route handler for the shape)
  * ────────────────────────────────────────────────────────────────────────
  */
 

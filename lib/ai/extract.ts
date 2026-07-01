@@ -51,10 +51,22 @@ Rules:
 - Prices must be in AED as decimal numbers (e.g., 25.50)
 - If no size/variant is specified, create one variant with label "Regular"
 - If multiple sizes are listed (Small/Medium/Large, Half/Full), create a variant for each
-- Categories should match what's on the menu (Starters, Mains, Desserts, Drinks, etc.)
 - Remove currency symbols, keep only numeric values
 - If Arabic names are present, include them
 - If a price seems missing, set it to 0 and note in the notes field
+
+Categorization (important):
+- EVERY item MUST have a non-empty "category". Never leave it blank or "Uncategorized".
+- If the menu already has section headings, use those exact headings as categories.
+- If the input has no clear sections, intelligently group items into sensible
+  categories based on the dish itself — e.g. Appetizers, Soups & Salads, Main
+  Courses, Rice & Biryani, Breads, Sides, Desserts, Hot Beverages, Cold Drinks.
+  Choose category names that fit the cuisine of the menu.
+- The top-level "categories" array MUST contain exactly the set of categories used
+  by the items, ordered the way a menu reads (starters → mains → sides → desserts → drinks).
+- Keep categories reasonable — typically 4–12 total. Do not create a separate
+  category per item, and do not lump everything into one category.
+
 - Return ONLY valid JSON, no markdown code blocks`;
 
 export async function extractMenuFromFile(

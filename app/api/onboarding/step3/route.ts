@@ -21,7 +21,14 @@ export async function POST(req: NextRequest) {
 
   // Insert items + prices
   for (const item of items ?? []) {
-    const catId = categoryMap[item.category] ?? null;
+    // Ensure the item's category exists — the AI should return every category
+    // in the list above, but create any it references on the fly so no item is
+    // ever left uncategorized.
+    let catId: string | null = item.category ? categoryMap[item.category] ?? null : null;
+    if (item.category && !catId) {
+      const { data: cat } = await admin.from("menu_categories").upsert({ restaurant_id: restaurantId, name: item.category, display_order: Object.keys(categoryMap).length }, { onConflict: "restaurant_id,name" }).select("id").single();
+      if (cat) { categoryMap[item.category] = cat.id; catId = cat.id; }
+    }
     const { data: menuItem } = await admin.from("menu_items").insert({ restaurant_id: restaurantId, category_id: catId, name: item.name, name_ar: item.nameAr ?? null, description: item.description ?? null, is_available: item.isAvailable !== false }).select("id").single();
     if (!menuItem) continue;
     for (let vi = 0; vi < (item.variants ?? []).length; vi++) {

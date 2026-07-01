@@ -1,13 +1,24 @@
 /**
  * /api/auth/callback
- * Receives the token from 36blocks auth (or dummy login) and creates a session.
+ * Post-login callback for 36Blocks (and a dummy path for local prototyping).
  *
- * ── 36BLOCKS INTEGRATION NOTE ───────────────────────────────────────────
- * 36blocks redirects to this URL after login with ?token=<jwt>.
- * When DUMMY_AUTH_ENABLED=true, the login page POSTs here directly
- * with a synthetic payload — no token validation is performed.
- * When DUMMY_AUTH_ENABLED=false, validate the token against the
- * 36blocks public key before trusting the payload.
+ * ── 36BLOCKS INTEGRATION ────────────────────────────────────────────────
+ * After a user logs in, 36Blocks redirects the browser to this URL with a
+ * JSON payload:
+ *   {
+ *     "ip": "...",
+ *     "user":    { "id", "name", "email", "mobile" },
+ *     "company": { "id", "name", "email", "mobile", "timezone" }
+ *   }
+ * We key each restaurant by `user.id` (stored in restaurants.auth_user_id),
+ * which links every downstream row (menu, orders, riders, …). `company.id`
+ * is stored alongside for tenant context, and name/email/mobile prefill the
+ * restaurant on first login only.
+ *
+ * SECURITY: this endpoint trusts whoever can POST to it. Set BLOCKS_AUTH_SECRET
+ * and have 36Blocks send it (header `x-36blocks-secret` or `?secret=`) so we
+ * can reject forged callbacks. Confirm the exact signing mechanism with
+ * 36Blocks and tighten verifyBlocksSecret() accordingly.
  * ────────────────────────────────────────────────────────────────────────
  */
 
@@ -16,62 +27,98 @@ import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import { createSession } from "@/lib/auth/session";
 import { writeAuditLog, requestMeta } from "@/lib/audit";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const token = searchParams.get("token");
-  const dummyEmail = searchParams.get("email"); // dummy auth only
+export const runtime = "nodejs";
 
-  const isDummy = process.env.DUMMY_AUTH_ENABLED === "true";
+interface Identity {
+  authUserId: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  companyId?: string;
+}
 
-  let authUserId: string;
-  let email: string;
+interface BlocksPayload {
+  user?: { id?: string | number; name?: string; email?: string; mobile?: string };
+  company?: {
+    id?: string | number;
+    name?: string;
+    email?: string;
+    mobile?: string;
+    timezone?: string;
+  };
+  email?: string; // dummy-login body
+}
 
-  if (isDummy) {
-    // ── DUMMY AUTH PATH (prototype) ──────────────────────────────────────
-    // Accept any email; generate a stable authUserId from it.
-    const { createHash } = await import("crypto");
-    email = dummyEmail ?? "demo@orderza.ae";
-    authUserId = createHash("sha256").update(email).digest("hex").slice(0, 36);
-  } else {
-    // ── REAL 36BLOCKS PATH ───────────────────────────────────────────────
-    if (!token) {
-      return NextResponse.redirect(new URL("/login?error=no_token", req.url));
-    }
-    // Validate the 36blocks JWT using their public key.
-    // Replace this placeholder with the actual 36blocks SDK validation call.
-    // const claims = await validate36BlocksToken(token);
-    // authUserId = claims.sub;
-    // email = claims.email;
-    return NextResponse.redirect(
-      new URL("/login?error=36blocks_not_configured", req.url)
-    );
-  }
+/** Verify the shared secret when BLOCKS_AUTH_SECRET is configured. */
+function verifyBlocksSecret(req: NextRequest): boolean {
+  const secret = process.env.BLOCKS_AUTH_SECRET;
+  if (!secret) return true; // not configured — see SECURITY note above
+  const provided =
+    req.headers.get("x-36blocks-secret") ??
+    new URL(req.url).searchParams.get("secret");
+  return provided === secret;
+}
 
+/** Build a URL-safe restaurant slug from the company name (or email local part). */
+function slugFrom(name: string | undefined, email: string): string {
+  const source = name && name.trim() ? name : email.split("@")[0] || "restaurant";
+  const base = source
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${base || "restaurant"}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+async function dummyIdentity(email: string): Promise<Identity> {
+  const { createHash } = await import("crypto");
+  return {
+    authUserId: createHash("sha256").update(email).digest("hex").slice(0, 36),
+    email,
+  };
+}
+
+/**
+ * Upsert the restaurant keyed by 36Blocks user id, start a session, and
+ * redirect the browser to onboarding or the dashboard. Prefill fields are
+ * only applied when the restaurant row is first created, so re-logins never
+ * clobber values the restaurant has since edited.
+ */
+async function establishSessionAndRedirect(req: NextRequest, id: Identity) {
   const admin = createSupabaseAdminClient();
 
-  // Upsert restaurant row keyed by auth_user_id
-  const { data: restaurant, error } = await admin
+  const { data: existing } = await admin
     .from("restaurants")
-    .upsert(
-      { auth_user_id: authUserId, email, slug: slugFromEmail(email) },
-      { onConflict: "auth_user_id", ignoreDuplicates: false }
-    )
-    .select(
-      "id, onboarding_step, is_active, email, auth_user_id, onboarding_xp"
-    )
-    .single();
+    .select("id, onboarding_step, is_active, email, auth_user_id")
+    .eq("auth_user_id", id.authUserId)
+    .maybeSingle();
 
-  if (error || !restaurant) {
-    console.error("[auth/callback] Upsert error:", error);
-    return NextResponse.redirect(new URL("/login?error=db_error", req.url));
+  let restaurant = existing;
+
+  if (!restaurant) {
+    const { data: created, error } = await admin
+      .from("restaurants")
+      .insert({
+        auth_user_id: id.authUserId,
+        blocks_company_id: id.companyId ?? null,
+        email: id.email,
+        name: id.name ?? "",
+        phone: id.phone ?? null,
+        slug: slugFrom(id.name, id.email),
+      })
+      .select("id, onboarding_step, is_active, email, auth_user_id")
+      .single();
+
+    if (error || !created) {
+      console.error("[auth/callback] insert error:", error);
+      return NextResponse.redirect(new URL("/login?error=db_error", req.url));
+    }
+    restaurant = created;
   }
 
   await createSession({
     restaurantId: restaurant.id,
-    // auth_user_id is nullable in the schema, but we just upserted it with the
-    // local `authUserId`, so fall back to that to keep the type non-null.
-    authUserId: restaurant.auth_user_id ?? authUserId,
-    email: restaurant.email ?? email,
+    authUserId: restaurant.auth_user_id ?? id.authUserId,
+    email: restaurant.email ?? id.email,
     onboardingStep: restaurant.onboarding_step,
     isActive: restaurant.is_active,
   });
@@ -79,28 +126,73 @@ export async function GET(req: NextRequest) {
   await writeAuditLog({
     restaurantId: restaurant.id,
     actorType: "restaurant",
-    actorId: restaurant.auth_user_id ?? authUserId,
+    actorId: restaurant.auth_user_id ?? id.authUserId,
     action: "auth.login",
     ...requestMeta(req),
   });
 
-  const redirectTo =
-    restaurant.onboarding_step >= 8 ? "/dashboard" : "/onboarding";
-
-  return NextResponse.redirect(new URL(redirectTo, req.url));
+  const dest = restaurant.onboarding_step >= 8 ? "/dashboard" : "/onboarding";
+  // 303 so a POST callback lands on the destination as a GET.
+  return NextResponse.redirect(new URL(dest, req.url), { status: 303 });
 }
 
-/** POST version used by dummy login form */
+/** Parse the request body as JSON, or from a form (`payload` field or flat fields). */
+async function readBody(req: NextRequest): Promise<BlocksPayload> {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await req.json().catch(() => ({}))) as BlocksPayload;
+  }
+  const form = await req.formData().catch(() => null);
+  if (!form) return {};
+  const raw = form.get("payload");
+  if (raw) {
+    try {
+      return JSON.parse(String(raw)) as BlocksPayload;
+    } catch {
+      return {};
+    }
+  }
+  return Object.fromEntries(form.entries()) as BlocksPayload;
+}
+
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
-  const email = body.email ?? "demo@orderza.ae";
-  const url = new URL(req.url);
-  url.pathname = "/api/auth/callback";
-  url.searchParams.set("email", email);
-  return GET(new NextRequest(url.toString(), { method: "GET" }));
+  const isDummy = process.env.DUMMY_AUTH_ENABLED === "true";
+  const body = await readBody(req);
+
+  // ── 36Blocks payload ────────────────────────────────────────────────
+  if (body?.user?.id != null) {
+    if (!verifyBlocksSecret(req)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const user = body.user;
+    const company = body.company ?? {};
+    const email = user.email ?? company.email;
+    if (!email) {
+      return NextResponse.redirect(new URL("/login?error=no_email", req.url));
+    }
+    return establishSessionAndRedirect(req, {
+      authUserId: String(user.id),
+      email,
+      name: company.name ?? user.name,
+      phone: user.mobile ?? company.mobile,
+      companyId: company.id != null ? String(company.id) : undefined,
+    });
+  }
+
+  // ── Dummy login (prototype) ─────────────────────────────────────────
+  if (isDummy) {
+    const email = body?.email ?? "demo@orderza.ae";
+    return establishSessionAndRedirect(req, await dummyIdentity(email));
+  }
+
+  return NextResponse.redirect(new URL("/login?error=invalid_payload", req.url));
 }
 
-function slugFromEmail(email: string): string {
-  const base = email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "-");
-  return `${base}-${Math.random().toString(36).slice(2, 6)}`;
+/** Dummy convenience: GET /api/auth/callback?email=... (only when dummy auth is on). */
+export async function GET(req: NextRequest) {
+  if (process.env.DUMMY_AUTH_ENABLED !== "true") {
+    return NextResponse.redirect(new URL("/login?error=use_post", req.url));
+  }
+  const email = new URL(req.url).searchParams.get("email") ?? "demo@orderza.ae";
+  return establishSessionAndRedirect(req, await dummyIdentity(email));
 }
